@@ -2,6 +2,12 @@
 
 Aplicacion web tipo CV academico para docente universitario, con pagina publica y panel admin.
 
+## Produccion
+
+- Sitio: https://carlos-lopez-academic.vercel.app
+- Administracion: https://carlos-lopez-academic.vercel.app/admin
+- Repositorio: https://github.com/carlolb1232/carlos-lopez-academic
+
 ## Stack
 
 - Next.js
