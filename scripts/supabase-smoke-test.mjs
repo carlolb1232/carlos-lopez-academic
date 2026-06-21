@@ -28,6 +28,13 @@ const publicClient = createClient(
   { realtime: { transport: WebSocket } },
 );
 
+const { data: visitCount, error: visitCountError } = await publicClient.rpc(
+  "get_page_visit_count",
+);
+if (visitCountError || !Number.isFinite(Number(visitCount))) {
+  throw new Error("El contador público de visitas no está disponible.");
+}
+
 const auth = await client.auth.signInWithPassword({
   email: ADMIN_EMAIL,
   password: ADMIN_PASSWORD,

@@ -993,7 +993,7 @@ function ForumAdmin({
           <div>
             <h2 className="text-xl font-bold">Foros de cursos</h2>
             <p className="mt-1 text-sm text-muted">
-              Crear foros y respuestas hasta 3 niveles.
+              Crear foros, responder consultas y conservar conversaciones.
             </p>
           </div>
           <button className="focus-ring inline-flex h-10 items-center gap-2 rounded bg-ocean px-4 text-sm font-bold text-white">

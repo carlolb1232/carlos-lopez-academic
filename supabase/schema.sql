@@ -111,6 +111,16 @@ create table if not exists public.reply_likes (
   primary key (reply_id, user_id)
 );
 
+create table if not exists public.page_visit_totals (
+  id smallint primary key default 1 check (id = 1),
+  total bigint not null default 0 check (total >= 0),
+  updated_at timestamptz not null default now()
+);
+
+insert into public.page_visit_totals (id, total)
+values (1, 0)
+on conflict (id) do nothing;
+
 insert into public.app_admins (user_id)
 select id from auth.users where lower(email) = 'carlolb1232@gmail.com'
 on conflict (user_id) do nothing;
@@ -208,12 +218,44 @@ begin
 end;
 $$;
 
+create or replace function public.record_page_visit()
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_total bigint;
+begin
+  update public.page_visit_totals
+  set total = total + 1, updated_at = now()
+  where id = 1
+  returning total into current_total;
+
+  return current_total;
+end;
+$$;
+
+create or replace function public.get_page_visit_count()
+returns bigint
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select total from public.page_visit_totals where id = 1;
+$$;
+
 revoke all on function public.is_admin() from public;
 grant execute on function public.is_admin() to anon, authenticated;
 revoke all on function public.increment_forum_like(text) from public, anon;
 revoke all on function public.increment_reply_like(text) from public, anon;
 grant execute on function public.increment_forum_like(text) to authenticated;
 grant execute on function public.increment_reply_like(text) to authenticated;
+revoke all on function public.record_page_visit() from public;
+revoke all on function public.get_page_visit_count() from public;
+grant execute on function public.record_page_visit() to anon, authenticated;
+grant execute on function public.get_page_visit_count() to anon, authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.courses enable row level security;
@@ -225,6 +267,7 @@ alter table public.forum_replies enable row level security;
 alter table public.app_admins enable row level security;
 alter table public.forum_likes enable row level security;
 alter table public.reply_likes enable row level security;
+alter table public.page_visit_totals enable row level security;
 
 drop policy if exists "Public read profile" on public.profiles;
 create policy "Public read profile" on public.profiles for select using (true);

@@ -2,6 +2,7 @@
 
 import { Mail, MapPin, University } from "lucide-react";
 import { useAcademicData } from "@/components/AcademicDataProvider";
+import { VisitCounter } from "@/components/VisitCounter";
 
 export function Footer() {
   const { profile } = useAcademicData();
@@ -29,6 +30,7 @@ export function Footer() {
             <Mail size={16} />
             {profile.email}
           </span>
+          <VisitCounter />
         </div>
       </div>
     </footer>

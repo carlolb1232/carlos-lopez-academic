@@ -1,6 +1,6 @@
 "use client";
 
-import { Heart, LogIn, MessageSquare, Reply, Workflow } from "lucide-react";
+import { Heart, LogIn, MessageSquare, Reply } from "lucide-react";
 import { useState } from "react";
 import { makeId, useAcademicData } from "@/components/AcademicDataProvider";
 import { useCommunityAuth } from "@/components/CommunityAuthProvider";
@@ -48,24 +48,17 @@ export function ForumsSection() {
   return (
     <section className="bg-white py-20" id="foros">
       <div className="section-shell">
-        <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
-          <div className="max-w-2xl">
-            <p className="text-sm font-bold uppercase tracking-[0.16em] text-moss">
-              Foros por curso
-            </p>
-            <h2 className="mt-3 break-words text-3xl font-bold text-ink sm:text-4xl">
-              Conversaciones con respuestas hasta 3 niveles.
-            </h2>
-            <p className="mt-4 text-base leading-7 text-ink/68">
-              Cada curso puede tener foros activos o archivados. Al llegar al
-              tercer nivel, el hilo continua con seguimiento y likes, sin crear
-              mas profundidad.
-            </p>
-          </div>
-          <div className="inline-flex items-center gap-2 rounded border border-ink/12 bg-paper px-3 py-2 text-sm font-bold text-ink/72">
-            <Workflow size={16} />
-            Maximo 3 niveles
-          </div>
+        <div className="max-w-2xl">
+          <p className="text-sm font-bold uppercase tracking-[0.16em] text-moss">
+            Foros por curso
+          </p>
+          <h2 className="mt-3 break-words text-3xl font-bold text-ink sm:text-4xl">
+            Conversaciones académicas por curso.
+          </h2>
+          <p className="mt-4 text-base leading-7 text-ink/68">
+            Cada curso puede tener foros activos o archivados para conservar
+            preguntas, aportes y respuestas útiles.
+          </p>
         </div>
 
         <div className="mt-10 grid gap-5 lg:grid-cols-3">

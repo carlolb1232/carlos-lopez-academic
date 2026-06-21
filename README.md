@@ -44,6 +44,15 @@ Con variables de Supabase configuradas, la aplicacion usa autenticacion, base de
 - limitar cada like a una vez por usuario y elemento
 - reservar el panel administrativo para el docente autorizado
 - mostrar un loader durante ediciones, cargas de archivos y otros cambios de datos
+- ofrecer navegación responsive mediante menú hamburguesa
+- mostrar un contador discreto de visitas sin almacenar datos personales
+
+## Manuales
+
+- `manuales/Manual_de_usuario_Carlos_Lopez.docx`
+- `manuales/Manual_de_usuario_Carlos_Lopez.pdf`
+- `manuales/Manual_de_administrador_Carlos_Lopez.docx`
+- `manuales/Manual_de_administrador_Carlos_Lopez.pdf`
 
 ## Desarrollo local
 
