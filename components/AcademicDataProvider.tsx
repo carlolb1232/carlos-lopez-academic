@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { LoaderCircle } from "lucide-react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   courseFiles,
   courseForums,
@@ -43,6 +51,8 @@ type UploadCourseFileInput = {
 
 type AcademicDataContextValue = AcademicData & {
   loading: boolean;
+  isMutating: boolean;
+  mutationLabel: string;
   error: string | null;
   mode: DataMode;
   refreshData: () => Promise<void>;
@@ -63,13 +73,43 @@ type AcademicDataContextValue = AcademicData & {
   resetData: () => void;
 };
 
-const AcademicDataContext = createContext<AcademicDataContextValue | null>(null);
+const AcademicDataContext = createContext<AcademicDataContextValue | null>(
+  null,
+);
 
-export function AcademicDataProvider({ children }: { children: React.ReactNode }) {
+export function AcademicDataProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [data, setData] = useState<AcademicData>(initialData);
   const [loading, setLoading] = useState(isSupabaseConfigured);
+  const [pendingMutations, setPendingMutations] = useState(0);
+  const [mutationLabel, setMutationLabel] = useState("Guardando cambios...");
   const [error, setError] = useState<string | null>(null);
   const mode: DataMode = isSupabaseConfigured ? "supabase" : "local";
+  const isMutating = pendingMutations > 0;
+
+  const runMutation = useCallback(
+    async <T,>(label: string, operation: () => Promise<T>): Promise<T> => {
+      const startedAt = Date.now();
+      setMutationLabel(label);
+      setPendingMutations((current) => current + 1);
+      setError(null);
+      try {
+        return await operation();
+      } finally {
+        const remainingDelay = Math.max(0, 350 - (Date.now() - startedAt));
+        if (remainingDelay) {
+          await new Promise((resolve) =>
+            window.setTimeout(resolve, remainingDelay),
+          );
+        }
+        setPendingMutations((current) => Math.max(0, current - 1));
+      }
+    },
+    [],
+  );
 
   const refreshData = useCallback(async () => {
     if (!supabase) return;
@@ -86,12 +126,30 @@ export function AcademicDataProvider({ children }: { children: React.ReactNode }
       repliesResult,
     ] = await Promise.all([
       supabase!.from("profiles").select("*").eq("id", "main").maybeSingle(),
-      supabase!.from("courses").select("*").order("period", { ascending: false }),
-      supabase!.from("academic_files").select("*").order("uploaded_at", { ascending: false }),
-      supabase!.from("publications").select("*").order("publication_year", { ascending: false }),
-      supabase!.from("timeline_events").select("*").order("event_year", { ascending: true }),
-      supabase!.from("course_forums").select("*").order("created_at", { ascending: false }),
-      supabase!.from("forum_replies").select("*").order("created_at", { ascending: true }),
+      supabase!
+        .from("courses")
+        .select("*")
+        .order("period", { ascending: false }),
+      supabase!
+        .from("academic_files")
+        .select("*")
+        .order("uploaded_at", { ascending: false }),
+      supabase!
+        .from("publications")
+        .select("*")
+        .order("publication_year", { ascending: false }),
+      supabase!
+        .from("timeline_events")
+        .select("*")
+        .order("event_year", { ascending: true }),
+      supabase!
+        .from("course_forums")
+        .select("*")
+        .order("created_at", { ascending: false }),
+      supabase!
+        .from("forum_replies")
+        .select("*")
+        .order("created_at", { ascending: true }),
     ]);
 
     const firstError = [
@@ -124,10 +182,15 @@ export function AcademicDataProvider({ children }: { children: React.ReactNode }
       .filter((row) => row.visibility === "Publico" && row.storage_path)
       .map((row) => row.storage_path as string);
     const signedUrls = publicPaths.length
-      ? await supabase!.storage.from(FILE_BUCKET).createSignedUrls(publicPaths, 60 * 60)
+      ? await supabase!.storage
+          .from(FILE_BUCKET)
+          .createSignedUrls(publicPaths, 60 * 60)
       : { data: [], error: null };
     const signedUrlByPath = new Map(
-      (signedUrls.data ?? []).map((item, index) => [publicPaths[index], item.signedUrl]),
+      (signedUrls.data ?? []).map((item, index) => [
+        publicPaths[index],
+        item.signedUrl,
+      ]),
     );
 
     const remoteFiles: CourseFile[] = (filesResult.data ?? []).map((row) => ({
@@ -138,32 +201,37 @@ export function AcademicDataProvider({ children }: { children: React.ReactNode }
       visibility: row.visibility,
       uploadedAt: row.uploaded_at,
       category: row.category ?? "Otro",
-      fileUrl: row.storage_path ? signedUrlByPath.get(row.storage_path) : row.file_url ?? undefined,
+      fileUrl: row.storage_path
+        ? signedUrlByPath.get(row.storage_path)
+        : (row.file_url ?? undefined),
       storagePath: row.storage_path ?? undefined,
     }));
 
     const coursesWithCounts = remoteCourses.map((course) => ({
       ...course,
-      files: remoteFiles.filter((file) => file.courseCode === course.code).length,
+      files: remoteFiles.filter((file) => file.courseCode === course.code)
+        .length,
     }));
 
-    const remoteReplies: Array<ForumReply & { forumId: string }> = (repliesResult.data ?? []).map(
-      (row) => ({
-        id: row.id,
-        forumId: row.forum_id,
-        author: row.author_name,
-        body: row.body,
-        likes: row.likes ?? 0,
-        level: row.depth,
-        parentId: row.parent_reply_id ?? undefined,
-      }),
-    );
+    const remoteReplies: Array<ForumReply & { forumId: string }> = (
+      repliesResult.data ?? []
+    ).map((row) => ({
+      id: row.id,
+      forumId: row.forum_id,
+      author: row.author_name,
+      body: row.body,
+      likes: row.likes ?? 0,
+      level: row.depth,
+      parentId: row.parent_reply_id ?? undefined,
+    }));
 
     const remoteForums: CourseForum[] = (forumsResult.data ?? []).map((row) => {
       const thread = remoteReplies
         .filter((reply) => reply.forumId === row.id)
         .map(({ forumId: _forumId, ...reply }) => reply);
-      const course = coursesWithCounts.find((item) => item.code === row.course_code);
+      const course = coursesWithCounts.find(
+        (item) => item.code === row.course_code,
+      );
       return {
         id: row.id,
         courseCode: row.course_code,
@@ -236,276 +304,326 @@ export function AcademicDataProvider({ children }: { children: React.ReactNode }
     }
   }, [data]);
 
-  const runRemote = useCallback(async (operation: () => Promise<{ error: { message: string } | null }>) => {
-    const result = await operation();
-    if (result.error) {
-      setError(result.error.message);
-      throw new Error(result.error.message);
-    }
-  }, []);
+  const runRemote = useCallback(
+    async (operation: () => Promise<{ error: { message: string } | null }>) => {
+      const result = await operation();
+      if (result.error) {
+        setError(result.error.message);
+        throw new Error(result.error.message);
+      }
+    },
+    [],
+  );
 
   const value = useMemo<AcademicDataContextValue>(
     () => ({
       ...data,
       loading,
+      isMutating,
+      mutationLabel,
       error,
       mode,
       refreshData,
-      updateProfile: async (nextProfile) => {
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("profiles").upsert({
-              id: "main",
-              full_name: nextProfile.name,
-              role: nextProfile.role,
-              institution: nextProfile.institution,
-              location: nextProfile.location,
-              email: nextProfile.email,
-              bio: nextProfile.summary,
-              interests: nextProfile.interests,
-              metrics: nextProfile.metrics,
-              updated_at: new Date().toISOString(),
-            }),
-          );
-        }
-        setData((current) => ({ ...current, profile: nextProfile }));
-      },
-      addCourse: async (course) => {
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("courses").upsert({
-              code: course.code,
-              name: course.name,
-              school: course.school,
-              period: course.period,
-              status: course.status,
-              description: course.description,
-              updated_at: new Date().toISOString(),
-            }),
-          );
-        }
-        setData((current) => ({
-          ...current,
-          courses: [course, ...current.courses.filter((item) => item.code !== course.code)],
-        }));
-      },
-      deleteCourse: async (code) => {
-        if (supabase) {
-          await runRemote(async () => supabase!.from("courses").delete().eq("code", code));
-        }
-        setData((current) => ({
-          ...current,
-          courses: current.courses.filter((course) => course.code !== code),
-          courseFiles: current.courseFiles.filter((file) => file.courseCode !== code),
-          courseForums: current.courseForums.filter((forum) => forum.courseCode !== code),
-        }));
-      },
-      addCourseFile: async (file) => {
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("academic_files").insert({
-              id: file.id,
-              course_code: file.courseCode,
-              title: file.title,
-              file_type: file.type,
-              visibility: file.visibility,
-              uploaded_at: file.uploadedAt,
-              category: file.category,
-              file_url: file.fileUrl,
-              storage_path: file.storagePath,
-            }),
-          );
-        }
-        setData((current) => addFileToState(current, file));
-      },
-      uploadCourseFile: async ({ courseCode, file, category, visibility }) => {
-        const extension = file.name.split(".").pop()?.toUpperCase() || "FILE";
-        const id = makeId("file");
-        let storagePath: string | undefined;
-        let fileUrl: string | undefined;
-
-        if (supabase) {
-          storagePath = `${courseCode}/${id}-${sanitizeFileName(file.name)}`;
-          const upload = await supabase!.storage.from(FILE_BUCKET).upload(storagePath, file, {
-            upsert: false,
-            contentType: file.type || undefined,
-          });
-          if (upload.error) {
-            setError(upload.error.message);
-            throw upload.error;
+      updateProfile: async (nextProfile) =>
+        runMutation("Guardando perfil...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("profiles").upsert({
+                id: "main",
+                full_name: nextProfile.name,
+                role: nextProfile.role,
+                institution: nextProfile.institution,
+                location: nextProfile.location,
+                email: nextProfile.email,
+                bio: nextProfile.summary,
+                interests: nextProfile.interests,
+                metrics: nextProfile.metrics,
+                updated_at: new Date().toISOString(),
+              }),
+            );
           }
-        } else {
-          fileUrl = URL.createObjectURL(file);
-        }
-
-        const fileRecord: CourseFile = {
-          id,
-          courseCode,
-          title: file.name.replace(/\.[^/.]+$/, ""),
-          type: extension,
-          visibility,
-          uploadedAt: new Date().toISOString().slice(0, 10),
-          category,
-          fileUrl,
-          storagePath,
-        };
-
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("academic_files").insert({
-              id: fileRecord.id,
-              course_code: fileRecord.courseCode,
-              title: fileRecord.title,
-              file_type: fileRecord.type,
-              visibility: fileRecord.visibility,
-              uploaded_at: fileRecord.uploadedAt,
-              category: fileRecord.category,
-              file_url: fileRecord.fileUrl,
-              storage_path: fileRecord.storagePath,
-            }),
-          );
-        }
-        setData((current) => addFileToState(current, fileRecord));
-      },
-      deleteCourseFile: async (id) => {
-        const removed = data.courseFiles.find((file) => file.id === id);
-        if (supabase) {
-          if (removed?.storagePath) {
-            await supabase!.storage.from(FILE_BUCKET).remove([removed.storagePath]);
+          setData((current) => ({ ...current, profile: nextProfile }));
+        }),
+      addCourse: async (course) =>
+        runMutation("Guardando curso...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("courses").upsert({
+                code: course.code,
+                name: course.name,
+                school: course.school,
+                period: course.period,
+                status: course.status,
+                description: course.description,
+                updated_at: new Date().toISOString(),
+              }),
+            );
           }
-          await runRemote(async () => supabase!.from("academic_files").delete().eq("id", id));
-        }
-        setData((current) => removeFileFromState(current, id));
-      },
-      addPublication: async (publication) => {
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("publications").insert({
-              id: publication.id,
-              title: publication.title,
-              publication_year: Number(publication.year),
-              publication_type: publication.type,
-              venue: publication.venue,
-              authors: publication.authors,
-              status: publication.status,
-            }),
-          );
-        }
-        setData((current) => ({
-          ...current,
-          publications: [publication, ...current.publications],
-        }));
-      },
-      deletePublication: async (id) => {
-        if (supabase) {
-          await runRemote(async () => supabase!.from("publications").delete().eq("id", id));
-        }
-        setData((current) => ({
-          ...current,
-          publications: current.publications.filter((publication) => publication.id !== id),
-        }));
-      },
-      addTimelineEvent: async (event) => {
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("timeline_events").insert({
-              id: event.id,
-              event_year: event.year,
-              title: event.title,
-              category: event.type,
-              description: event.description,
-            }),
-          );
-        }
-        setData((current) => ({
-          ...current,
-          timeline: [event, ...current.timeline].sort((a, b) => Number(a.year) - Number(b.year)),
-        }));
-      },
-      deleteTimelineEvent: async (id) => {
-        if (supabase) {
-          await runRemote(async () => supabase!.from("timeline_events").delete().eq("id", id));
-        }
-        setData((current) => ({
-          ...current,
-          timeline: current.timeline.filter((event) => event.id !== id),
-        }));
-      },
-      addForum: async (forum) => {
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("course_forums").insert({
-              id: forum.id,
-              course_code: forum.courseCode,
-              title: forum.title,
-              description: forum.excerpt,
-              status: forum.status,
-              likes: forum.likes,
-            }),
-          );
-        }
-        setData((current) => ({
-          ...current,
-          courseForums: [forum, ...current.courseForums],
-        }));
-      },
-      addForumReply: async (forumId, reply) => {
-        if (supabase) {
-          await runRemote(async () =>
-            supabase!.from("forum_replies").insert({
-              id: reply.id,
-              forum_id: forumId,
-              author_name: reply.author,
-              body: reply.body,
-              depth: reply.level,
-              likes: reply.likes,
-              parent_reply_id: reply.parentId ?? null,
-            }),
-          );
-        }
-        setData((current) => ({
-          ...current,
-          courseForums: current.courseForums.map((forum) =>
-            forum.id === forumId
-              ? {
-                  ...forum,
-                  replies: forum.replies + 1,
-                  lastActivity: "Ahora",
-                  thread: [...forum.thread, reply],
-                }
-              : forum,
-          ),
-        }));
-      },
-      likeForum: async (forumId) => {
-        if (supabase) {
-          await runRemote(async () => supabase!.rpc("increment_forum_like", { target_id: forumId }));
-        }
-        setData((current) => ({
-          ...current,
-          courseForums: current.courseForums.map((forum) =>
-            forum.id === forumId ? { ...forum, likes: forum.likes + 1 } : forum,
-          ),
-        }));
-      },
-      likeReply: async (forumId, replyId) => {
-        if (supabase) {
-          await runRemote(async () => supabase!.rpc("increment_reply_like", { target_id: replyId }));
-        }
-        setData((current) => ({
-          ...current,
-          courseForums: current.courseForums.map((forum) =>
-            forum.id === forumId
-              ? {
-                  ...forum,
-                  thread: forum.thread.map((reply) =>
-                    reply.id === replyId ? { ...reply, likes: reply.likes + 1 } : reply,
-                  ),
-                }
-              : forum,
-          ),
-        }));
-      },
+          setData((current) => ({
+            ...current,
+            courses: [
+              course,
+              ...current.courses.filter((item) => item.code !== course.code),
+            ],
+          }));
+        }),
+      deleteCourse: async (code) =>
+        runMutation("Eliminando curso...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("courses").delete().eq("code", code),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            courses: current.courses.filter((course) => course.code !== code),
+            courseFiles: current.courseFiles.filter(
+              (file) => file.courseCode !== code,
+            ),
+            courseForums: current.courseForums.filter(
+              (forum) => forum.courseCode !== code,
+            ),
+          }));
+        }),
+      addCourseFile: async (file) =>
+        runMutation("Guardando archivo...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("academic_files").insert({
+                id: file.id,
+                course_code: file.courseCode,
+                title: file.title,
+                file_type: file.type,
+                visibility: file.visibility,
+                uploaded_at: file.uploadedAt,
+                category: file.category,
+                file_url: file.fileUrl,
+                storage_path: file.storagePath,
+              }),
+            );
+          }
+          setData((current) => addFileToState(current, file));
+        }),
+      uploadCourseFile: async ({ courseCode, file, category, visibility }) =>
+        runMutation("Subiendo archivo...", async () => {
+          const extension = file.name.split(".").pop()?.toUpperCase() || "FILE";
+          const id = makeId("file");
+          let storagePath: string | undefined;
+          let fileUrl: string | undefined;
+
+          if (supabase) {
+            storagePath = `${courseCode}/${id}-${sanitizeFileName(file.name)}`;
+            const upload = await supabase!.storage
+              .from(FILE_BUCKET)
+              .upload(storagePath, file, {
+                upsert: false,
+                contentType: file.type || undefined,
+              });
+            if (upload.error) {
+              setError(upload.error.message);
+              throw upload.error;
+            }
+          } else {
+            fileUrl = URL.createObjectURL(file);
+          }
+
+          const fileRecord: CourseFile = {
+            id,
+            courseCode,
+            title: file.name.replace(/\.[^/.]+$/, ""),
+            type: extension,
+            visibility,
+            uploadedAt: new Date().toISOString().slice(0, 10),
+            category,
+            fileUrl,
+            storagePath,
+          };
+
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("academic_files").insert({
+                id: fileRecord.id,
+                course_code: fileRecord.courseCode,
+                title: fileRecord.title,
+                file_type: fileRecord.type,
+                visibility: fileRecord.visibility,
+                uploaded_at: fileRecord.uploadedAt,
+                category: fileRecord.category,
+                file_url: fileRecord.fileUrl,
+                storage_path: fileRecord.storagePath,
+              }),
+            );
+          }
+          setData((current) => addFileToState(current, fileRecord));
+        }),
+      deleteCourseFile: async (id) =>
+        runMutation("Eliminando archivo...", async () => {
+          const removed = data.courseFiles.find((file) => file.id === id);
+          if (supabase) {
+            if (removed?.storagePath) {
+              await supabase!.storage
+                .from(FILE_BUCKET)
+                .remove([removed.storagePath]);
+            }
+            await runRemote(async () =>
+              supabase!.from("academic_files").delete().eq("id", id),
+            );
+          }
+          setData((current) => removeFileFromState(current, id));
+        }),
+      addPublication: async (publication) =>
+        runMutation("Guardando publicación...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("publications").insert({
+                id: publication.id,
+                title: publication.title,
+                publication_year: Number(publication.year),
+                publication_type: publication.type,
+                venue: publication.venue,
+                authors: publication.authors,
+                status: publication.status,
+              }),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            publications: [publication, ...current.publications],
+          }));
+        }),
+      deletePublication: async (id) =>
+        runMutation("Eliminando publicación...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("publications").delete().eq("id", id),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            publications: current.publications.filter(
+              (publication) => publication.id !== id,
+            ),
+          }));
+        }),
+      addTimelineEvent: async (event) =>
+        runMutation("Guardando hito...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("timeline_events").insert({
+                id: event.id,
+                event_year: event.year,
+                title: event.title,
+                category: event.type,
+                description: event.description,
+              }),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            timeline: [event, ...current.timeline].sort(
+              (a, b) => Number(a.year) - Number(b.year),
+            ),
+          }));
+        }),
+      deleteTimelineEvent: async (id) =>
+        runMutation("Eliminando hito...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("timeline_events").delete().eq("id", id),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            timeline: current.timeline.filter((event) => event.id !== id),
+          }));
+        }),
+      addForum: async (forum) =>
+        runMutation("Creando foro...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("course_forums").insert({
+                id: forum.id,
+                course_code: forum.courseCode,
+                title: forum.title,
+                description: forum.excerpt,
+                status: forum.status,
+                likes: forum.likes,
+              }),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            courseForums: [forum, ...current.courseForums],
+          }));
+        }),
+      addForumReply: async (forumId, reply) =>
+        runMutation("Publicando respuesta...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.from("forum_replies").insert({
+                id: reply.id,
+                forum_id: forumId,
+                author_name: reply.author,
+                body: reply.body,
+                depth: reply.level,
+                likes: reply.likes,
+                parent_reply_id: reply.parentId ?? null,
+              }),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            courseForums: current.courseForums.map((forum) =>
+              forum.id === forumId
+                ? {
+                    ...forum,
+                    replies: forum.replies + 1,
+                    lastActivity: "Ahora",
+                    thread: [...forum.thread, reply],
+                  }
+                : forum,
+            ),
+          }));
+        }),
+      likeForum: async (forumId) =>
+        runMutation("Registrando like...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.rpc("increment_forum_like", { target_id: forumId }),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            courseForums: current.courseForums.map((forum) =>
+              forum.id === forumId
+                ? { ...forum, likes: forum.likes + 1 }
+                : forum,
+            ),
+          }));
+        }),
+      likeReply: async (forumId, replyId) =>
+        runMutation("Registrando like...", async () => {
+          if (supabase) {
+            await runRemote(async () =>
+              supabase!.rpc("increment_reply_like", { target_id: replyId }),
+            );
+          }
+          setData((current) => ({
+            ...current,
+            courseForums: current.courseForums.map((forum) =>
+              forum.id === forumId
+                ? {
+                    ...forum,
+                    thread: forum.thread.map((reply) =>
+                      reply.id === replyId
+                        ? { ...reply, likes: reply.likes + 1 }
+                        : reply,
+                    ),
+                  }
+                : forum,
+            ),
+          }));
+        }),
       resetData: () => {
         if (!supabase) {
           window.localStorage.removeItem(STORAGE_KEY);
@@ -513,10 +631,25 @@ export function AcademicDataProvider({ children }: { children: React.ReactNode }
         }
       },
     }),
-    [data, error, loading, mode, refreshData, runRemote],
+    [
+      data,
+      error,
+      isMutating,
+      loading,
+      mode,
+      mutationLabel,
+      refreshData,
+      runMutation,
+      runRemote,
+    ],
   );
 
-  return <AcademicDataContext.Provider value={value}>{children}</AcademicDataContext.Provider>;
+  return (
+    <AcademicDataContext.Provider value={value}>
+      {children}
+      {isMutating ? <MutationLoader label={mutationLabel} /> : null}
+    </AcademicDataContext.Provider>
+  );
 }
 
 export function useAcademicData() {
@@ -536,7 +669,9 @@ function addFileToState(current: AcademicData, file: CourseFile): AcademicData {
     ...current,
     courseFiles: [file, ...current.courseFiles],
     courses: current.courses.map((course) =>
-      course.code === file.courseCode ? { ...course, files: course.files + 1 } : course,
+      course.code === file.courseCode
+        ? { ...course, files: course.files + 1 }
+        : course,
     ),
   };
 }
@@ -555,9 +690,33 @@ function removeFileFromState(current: AcademicData, id: string): AcademicData {
 }
 
 function sanitizeFileName(fileName: string) {
-  return fileName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9._-]/g, "-");
+  return fileName
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "-");
 }
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat("es-PE", { dateStyle: "medium" }).format(new Date(value));
+  return new Intl.DateTimeFormat("es-PE", { dateStyle: "medium" }).format(
+    new Date(value),
+  );
+}
+
+function MutationLoader({ label }: { label: string }) {
+  return (
+    <div
+      aria-live="assertive"
+      aria-modal="true"
+      className="fixed inset-0 z-[100] grid place-items-center bg-ink/45 px-5 backdrop-blur-[2px]"
+      role="status"
+    >
+      <div className="flex min-w-64 items-center gap-4 rounded border border-white/20 bg-white px-5 py-4 shadow-2xl">
+        <LoaderCircle className="shrink-0 animate-spin text-ocean" size={24} />
+        <div>
+          <p className="font-bold text-ink">{label}</p>
+          <p className="mt-1 text-sm text-muted">Espera un momento.</p>
+        </div>
+      </div>
+    </div>
+  );
 }

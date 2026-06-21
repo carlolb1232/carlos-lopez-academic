@@ -80,6 +80,7 @@ create table if not exists public.forum_replies (
   id text primary key,
   forum_id text not null references public.course_forums(id) on delete cascade,
   parent_reply_id text references public.forum_replies(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null default auth.uid(),
   author_name text not null check (char_length(author_name) between 2 and 100),
   body text not null check (char_length(body) between 2 and 4000),
   depth int not null check (depth between 1 and 3),
@@ -87,6 +88,44 @@ create table if not exists public.forum_replies (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.forum_replies
+  add column if not exists user_id uuid references auth.users(id) on delete set null default auth.uid();
+
+create table if not exists public.app_admins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.forum_likes (
+  forum_id text not null references public.course_forums(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  created_at timestamptz not null default now(),
+  primary key (forum_id, user_id)
+);
+
+create table if not exists public.reply_likes (
+  reply_id text not null references public.forum_replies(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade default auth.uid(),
+  created_at timestamptz not null default now(),
+  primary key (reply_id, user_id)
+);
+
+insert into public.app_admins (user_id)
+select id from auth.users where lower(email) = 'carlolb1232@gmail.com'
+on conflict (user_id) do nothing;
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.app_admins where user_id = auth.uid()
+  );
+$$;
 
 create or replace function public.validate_reply_depth()
 returns trigger
@@ -125,24 +164,56 @@ for each row execute function public.validate_reply_depth();
 
 create or replace function public.increment_forum_like(target_id text)
 returns void
-language sql
+language plpgsql
 security definer
 set search_path = public
 as $$
-  update public.course_forums set likes = likes + 1, updated_at = now() where id = target_id;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesion para dar like';
+  end if;
+
+  insert into public.forum_likes (forum_id, user_id)
+  values (target_id, auth.uid())
+  on conflict do nothing;
+
+  if found then
+    update public.course_forums
+    set likes = likes + 1, updated_at = now()
+    where id = target_id;
+  end if;
+end;
 $$;
 
 create or replace function public.increment_reply_like(target_id text)
 returns void
-language sql
+language plpgsql
 security definer
 set search_path = public
 as $$
-  update public.forum_replies set likes = likes + 1, updated_at = now() where id = target_id;
+begin
+  if auth.uid() is null then
+    raise exception 'Debes iniciar sesion para dar like';
+  end if;
+
+  insert into public.reply_likes (reply_id, user_id)
+  values (target_id, auth.uid())
+  on conflict do nothing;
+
+  if found then
+    update public.forum_replies
+    set likes = likes + 1, updated_at = now()
+    where id = target_id;
+  end if;
+end;
 $$;
 
-grant execute on function public.increment_forum_like(text) to anon, authenticated;
-grant execute on function public.increment_reply_like(text) to anon, authenticated;
+revoke all on function public.is_admin() from public;
+grant execute on function public.is_admin() to anon, authenticated;
+revoke all on function public.increment_forum_like(text) from public, anon;
+revoke all on function public.increment_reply_like(text) from public, anon;
+grant execute on function public.increment_forum_like(text) to authenticated;
+grant execute on function public.increment_reply_like(text) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.courses enable row level security;
@@ -151,6 +222,9 @@ alter table public.timeline_events enable row level security;
 alter table public.academic_files enable row level security;
 alter table public.course_forums enable row level security;
 alter table public.forum_replies enable row level security;
+alter table public.app_admins enable row level security;
+alter table public.forum_likes enable row level security;
+alter table public.reply_likes enable row level security;
 
 drop policy if exists "Public read profile" on public.profiles;
 create policy "Public read profile" on public.profiles for select using (true);
@@ -162,14 +236,22 @@ drop policy if exists "Public read timeline" on public.timeline_events;
 create policy "Public read timeline" on public.timeline_events for select using (true);
 drop policy if exists "Public read public files" on public.academic_files;
 create policy "Public read public files" on public.academic_files
-  for select using (visibility = 'Publico' or auth.role() = 'authenticated');
+  for select using (visibility = 'Publico' or public.is_admin());
 drop policy if exists "Public read forums" on public.course_forums;
 create policy "Public read forums" on public.course_forums for select using (true);
 drop policy if exists "Public read replies" on public.forum_replies;
 create policy "Public read replies" on public.forum_replies for select using (true);
 drop policy if exists "Public create replies" on public.forum_replies;
-create policy "Public create replies" on public.forum_replies
-  for insert with check (
+drop policy if exists "Authenticated create replies" on public.forum_replies;
+create policy "Authenticated create replies" on public.forum_replies
+  for insert to authenticated with check (
+    user_id = auth.uid()
+    and
+    author_name = coalesce(
+      nullif(auth.jwt() -> 'user_metadata' ->> 'full_name', ''),
+      split_part(auth.jwt() ->> 'email', '@', 1)
+    )
+    and
     exists (
       select 1 from public.course_forums
       where id = forum_id and status = 'Abierto'
@@ -178,25 +260,25 @@ create policy "Public create replies" on public.forum_replies
 
 drop policy if exists "Admin manage profile" on public.profiles;
 create policy "Admin manage profile" on public.profiles
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "Admin manage courses" on public.courses;
 create policy "Admin manage courses" on public.courses
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "Admin manage publications" on public.publications;
 create policy "Admin manage publications" on public.publications
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "Admin manage timeline" on public.timeline_events;
 create policy "Admin manage timeline" on public.timeline_events
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "Admin manage files" on public.academic_files;
 create policy "Admin manage files" on public.academic_files
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "Admin manage forums" on public.course_forums;
 create policy "Admin manage forums" on public.course_forums
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 drop policy if exists "Admin manage replies" on public.forum_replies;
 create policy "Admin manage replies" on public.forum_replies
-  for all to authenticated using (true) with check (true);
+  for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
@@ -228,6 +310,7 @@ create policy "Read public academic files" on storage.objects
     bucket_id = 'academic-files'
     and (
       auth.role() = 'authenticated'
+      and public.is_admin()
       or exists (
         select 1 from public.academic_files
         where storage_path = name and visibility = 'Publico'
@@ -236,13 +319,15 @@ create policy "Read public academic files" on storage.objects
   );
 drop policy if exists "Admin upload academic files" on storage.objects;
 create policy "Admin upload academic files" on storage.objects
-  for insert to authenticated with check (bucket_id = 'academic-files');
+  for insert to authenticated with check (bucket_id = 'academic-files' and public.is_admin());
 drop policy if exists "Admin update academic files" on storage.objects;
 create policy "Admin update academic files" on storage.objects
-  for update to authenticated using (bucket_id = 'academic-files') with check (bucket_id = 'academic-files');
+  for update to authenticated
+  using (bucket_id = 'academic-files' and public.is_admin())
+  with check (bucket_id = 'academic-files' and public.is_admin());
 drop policy if exists "Admin delete academic files" on storage.objects;
 create policy "Admin delete academic files" on storage.objects
-  for delete to authenticated using (bucket_id = 'academic-files');
+  for delete to authenticated using (bucket_id = 'academic-files' and public.is_admin());
 
 grant usage on schema public to anon, authenticated;
 
@@ -256,7 +341,8 @@ grant select on table
   public.forum_replies
 to anon, authenticated;
 
-grant insert on table public.forum_replies to anon, authenticated;
+revoke insert on table public.forum_replies from anon;
+grant insert on table public.forum_replies to authenticated;
 
 grant insert, update, delete on table
   public.profiles,
@@ -268,8 +354,8 @@ grant insert, update, delete on table
   public.forum_replies
 to authenticated;
 
-grant execute on function public.increment_forum_like(text) to anon, authenticated;
-grant execute on function public.increment_reply_like(text) to anon, authenticated;
+grant execute on function public.increment_forum_like(text) to authenticated;
+grant execute on function public.increment_reply_like(text) to authenticated;
 
 insert into public.profiles (
   id, full_name, role, institution, location, email, bio, interests, metrics

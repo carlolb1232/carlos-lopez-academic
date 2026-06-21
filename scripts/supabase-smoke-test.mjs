@@ -84,8 +84,21 @@ try {
 
   if (forum.error) throw forum.error;
 
+  const anonymousReply = await publicClient.from("forum_replies").insert({
+    id: `anonymous-${replyIds[0]}`,
+    forum_id: forumId,
+    parent_reply_id: null,
+    author_name: "Anonimo",
+    body: "Esta respuesta debe ser rechazada.",
+    depth: 1,
+  });
+
+  if (!anonymousReply.error) {
+    throw new Error("Un visitante anonimo pudo publicar en el foro.");
+  }
+
   for (let level = 1; level <= 3; level += 1) {
-    const reply = await publicClient.from("forum_replies").insert({
+    const reply = await client.from("forum_replies").insert({
       id: replyIds[level - 1],
       forum_id: forumId,
       parent_reply_id: level === 1 ? null : replyIds[level - 2],
@@ -97,7 +110,7 @@ try {
     if (reply.error) throw reply.error;
   }
 
-  const forbiddenReply = await publicClient.from("forum_replies").insert({
+  const forbiddenReply = await client.from("forum_replies").insert({
     id: replyIds[3],
     forum_id: forumId,
     parent_reply_id: replyIds[2],
@@ -110,7 +123,15 @@ try {
     throw new Error("El foro acepto incorrectamente una respuesta de nivel 4.");
   }
 
-  const like = await publicClient.rpc("increment_forum_like", {
+  const anonymousLike = await publicClient.rpc("increment_forum_like", {
+    target_id: forumId,
+  });
+
+  if (!anonymousLike.error) {
+    throw new Error("Un visitante anonimo pudo dar like.");
+  }
+
+  const like = await client.rpc("increment_forum_like", {
     target_id: forumId,
   });
 
@@ -126,9 +147,7 @@ try {
     throw forumCheck.error ?? new Error("El like del foro no se registro.");
   }
 
-  console.log(
-    "Supabase smoke test: auth, storage, base de datos y foros OK.",
-  );
+  console.log("Supabase smoke test: auth, storage, base de datos y foros OK.");
 } finally {
   await client.from("course_forums").delete().eq("id", forumId);
   await client.from("academic_files").delete().eq("id", rowId);

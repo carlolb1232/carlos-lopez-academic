@@ -1,11 +1,21 @@
 "use client";
 
-import { Download, Mail, ShieldCheck } from "lucide-react";
+import {
+  Download,
+  LogIn,
+  LogOut,
+  Mail,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 import Link from "next/link";
 import { useAcademicData } from "@/components/AcademicDataProvider";
+import { useCommunityAuth } from "@/components/CommunityAuthProvider";
 
 export function PublicHeader() {
   const { profile } = useAcademicData();
+  const { authReady, displayName, openAuth, signOut, user } =
+    useCommunityAuth();
 
   return (
     <header className="sticky top-0 z-30 border-b border-ink/10 bg-paper/92 backdrop-blur">
@@ -39,6 +49,30 @@ export function PublicHeader() {
           </a>
         </nav>
         <div className="flex items-center gap-2">
+          {authReady && user ? (
+            <div className="hidden items-center gap-2 rounded border border-ink/12 bg-white pl-3 sm:flex">
+              <UserRound size={16} className="text-ocean" />
+              <span className="max-w-32 truncate text-sm font-bold">
+                {displayName}
+              </span>
+              <button
+                aria-label="Cerrar sesión"
+                className="focus-ring grid h-10 w-10 place-items-center border-l border-ink/10 text-copper"
+                onClick={() => void signOut()}
+                title="Cerrar sesión"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          ) : (
+            <button
+              className="focus-ring inline-flex h-10 items-center gap-2 rounded border border-ink/15 bg-white px-3 text-sm font-semibold"
+              onClick={() => openAuth("login")}
+            >
+              <LogIn size={16} />
+              <span className="hidden sm:inline">Ingresar</span>
+            </button>
+          )}
           <a
             className="focus-ring hidden h-10 items-center gap-2 rounded border border-ink/15 px-3 text-sm font-semibold sm:flex"
             href={`mailto:${profile.email}`}

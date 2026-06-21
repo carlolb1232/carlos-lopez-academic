@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AcademicDataProvider } from "@/components/AcademicDataProvider";
+import { CommunityAuthProvider } from "@/components/CommunityAuthProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +17,9 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body>
-        <AcademicDataProvider>{children}</AcademicDataProvider>
+        <CommunityAuthProvider>
+          <AcademicDataProvider>{children}</AcademicDataProvider>
+        </CommunityAuthProvider>
       </body>
     </html>
   );
