@@ -2,6 +2,7 @@
 
 import {
   Download,
+  KeyRound,
   LogIn,
   LogOut,
   Mail,
@@ -14,8 +15,14 @@ import { useCommunityAuth } from "@/components/CommunityAuthProvider";
 
 export function PublicHeader() {
   const { profile } = useAcademicData();
-  const { authReady, displayName, openAuth, signOut, user } =
-    useCommunityAuth();
+  const {
+    authReady,
+    displayName,
+    openAuth,
+    openPasswordChange,
+    signOut,
+    user,
+  } = useCommunityAuth();
 
   return (
     <header className="sticky top-0 z-30 border-b border-ink/10 bg-paper/92 backdrop-blur">
@@ -55,6 +62,14 @@ export function PublicHeader() {
               <span className="max-w-32 truncate text-sm font-bold">
                 {displayName}
               </span>
+              <button
+                aria-label="Cambiar contraseña"
+                className="focus-ring grid h-10 w-10 place-items-center border-l border-ink/10 text-ocean"
+                onClick={openPasswordChange}
+                title="Cambiar contraseña"
+              >
+                <KeyRound size={16} />
+              </button>
               <button
                 aria-label="Cerrar sesión"
                 className="focus-ring grid h-10 w-10 place-items-center border-l border-ink/10 text-copper"

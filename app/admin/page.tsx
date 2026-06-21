@@ -22,6 +22,8 @@ import {
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { makeId, useAcademicData } from "@/components/AcademicDataProvider";
+import { UserImportPanel } from "@/components/UserImportPanel";
+import { allowPublicSignup } from "@/lib/auth-config";
 import { adminCards } from "@/lib/data";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase";
 import type { Course, CourseForum, Profile } from "@/lib/types";
@@ -358,6 +360,7 @@ export default function AdminPage() {
             <nav className="mt-5 grid gap-2 text-sm font-bold text-ink/74">
               {[
                 "Dashboard",
+                ...(allowPublicSignup ? [] : ["Usuarios"]),
                 "Perfil",
                 "Cursos",
                 "Foros",
@@ -404,6 +407,8 @@ export default function AdminPage() {
                 );
               })}
             </section>
+
+            {!allowPublicSignup ? <UserImportPanel /> : null}
 
             <form
               className="rounded border border-ink/10 bg-white p-6 shadow-soft"
